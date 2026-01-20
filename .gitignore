@@ -5,6 +5,8 @@ node_modules/
 .env
 .env.local
 .env.*.local
+# Exception: client/.env is tracked (contains production API URL)
+!client/.env
 
 # Build outputs
 dist/
