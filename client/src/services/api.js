@@ -1,17 +1,56 @@
 import axios from 'axios';
 
-// Use proxy from package.json (forwards /api requests to http://localhost:5000)
-// For production or custom URLs, set REACT_APP_API_BASE_URL env variable
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL 
-  ? `${process.env.REACT_APP_API_BASE_URL}/api` 
-  : '/api';
+// API Base URL configuration
+// In development: uses proxy from package.json (forwards /api to http://localhost:5000)
+// In production: uses REACT_APP_API_BASE_URL environment variable
+const getApiBaseUrl = () => {
+  if (process.env.REACT_APP_API_BASE_URL) {
+    // Production: use the provided base URL
+    return `${process.env.REACT_APP_API_BASE_URL}/api`;
+  }
+  // Development: use proxy
+  return '/api';
+};
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000, // 10 second timeout
 });
+
+// Request interceptor for logging (development only)
+if (process.env.NODE_ENV === 'development') {
+  api.interceptors.request.use(
+    (config) => {
+      console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
+      return config;
+    },
+    (error) => {
+      console.error('API Request Error:', error);
+      return Promise.reject(error);
+    }
+  );
+}
+
+// Response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response) {
+      // Server responded with error status
+      console.error('API Error:', error.response.status, error.response.data);
+    } else if (error.request) {
+      // Request made but no response received
+      console.error('API Error: No response received', error.request);
+    } else {
+      // Error in setting up request
+      console.error('API Error:', error.message);
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Boards
 export const getBoards = () => api.get('/boards');

@@ -286,7 +286,7 @@ const BoardView = ({ board, onUpdateBoard }) => {
       });
     });
     setItemInputValues(prev => ({ ...prev, ...values }));
-  }, [board.id]); // Only reset when board changes
+  }, [board.id, board.groups]); // Reset when board or groups change
 
   const handleNameChange = (groupId, itemId, newName) => {
     // Update local input state instantly - no delay
