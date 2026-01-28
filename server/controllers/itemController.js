@@ -2,6 +2,23 @@ const pool = require('../config/database');
 const { logActivity } = require('../utils/activityLogger');
 const { sendStatusChangeEmail } = require('../config/email');
 
+const normalizeDateOnly = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+
+  // Accept already-normalized YYYY-MM-DD
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+
+  return d.toISOString().split('T')[0];
+};
+
+const startOfTodayUtcDateOnly = () => {
+  // Compare using date-only strings to avoid timezone edge cases
+  return new Date().toISOString().split('T')[0];
+};
+
 // Get all items (with optional filters)
 const getItems = async (req, res) => {
   try {
@@ -165,6 +182,24 @@ const updateItem = async (req, res) => {
       assignee_ids 
     } = req.body;
 
+    // Validate timeline fields when provided (accepts YYYY-MM-DD or ISO strings)
+    const normalizedStart = timeline_start !== undefined ? normalizeDateOnly(timeline_start) : undefined;
+    const normalizedEnd = timeline_end !== undefined ? normalizeDateOnly(timeline_end) : undefined;
+    if (timeline_start !== undefined && timeline_start !== null && timeline_start !== '' && normalizedStart === null) {
+      return res.status(400).json({ success: false, error: 'Invalid start date format' });
+    }
+    if (timeline_end !== undefined && timeline_end !== null && timeline_end !== '' && normalizedEnd === null) {
+      return res.status(400).json({ success: false, error: 'Invalid deadline/end date format' });
+    }
+
+    const today = startOfTodayUtcDateOnly();
+    if (normalizedEnd && normalizedEnd < today) {
+      return res.status(400).json({ success: false, error: 'Deadline cannot be in the past' });
+    }
+    if (normalizedStart && normalizedEnd && normalizedStart > normalizedEnd) {
+      return res.status(400).json({ success: false, error: 'Start date cannot be after deadline' });
+    }
+
     // Get current item to check status change
     const [currentItems] = await pool.execute(
       'SELECT * FROM items WHERE id = ?',
@@ -186,8 +221,8 @@ const updateItem = async (req, res) => {
     if (description !== undefined) { updateFields.push('description = ?'); updateValues.push(description); }
     if (status !== undefined) { updateFields.push('status = ?'); updateValues.push(status); }
     if (priority !== undefined) { updateFields.push('priority = ?'); updateValues.push(priority); }
-    if (timeline_start !== undefined) { updateFields.push('timeline_start = ?'); updateValues.push(timeline_start); }
-    if (timeline_end !== undefined) { updateFields.push('timeline_end = ?'); updateValues.push(timeline_end); }
+    if (timeline_start !== undefined) { updateFields.push('timeline_start = ?'); updateValues.push(normalizedStart); }
+    if (timeline_end !== undefined) { updateFields.push('timeline_end = ?'); updateValues.push(normalizedEnd); }
 
     if (updateFields.length > 0) {
       updateValues.push(id);
@@ -260,6 +295,84 @@ const updateItem = async (req, res) => {
   }
 };
 
+// Patch item timeline (supports {date, deadline} or {timeline_start, timeline_end})
+const updateItemTimeline = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date, deadline, timeline_start, timeline_end } = req.body || {};
+
+    const start = normalizeDateOnly(timeline_start ?? date);
+    const end = normalizeDateOnly(timeline_end ?? deadline);
+
+    if (start === null && end === null) {
+      return res.status(400).json({
+        success: false,
+        error: 'Provide at least one of {date, deadline} or {timeline_start, timeline_end}'
+      });
+    }
+
+    // Validate parsing (normalizeDateOnly returns null on invalid input)
+    if ((timeline_start ?? date) !== undefined && (timeline_start ?? date) !== null && start === null) {
+      return res.status(400).json({ success: false, error: 'Invalid start date format' });
+    }
+    if ((timeline_end ?? deadline) !== undefined && (timeline_end ?? deadline) !== null && end === null) {
+      return res.status(400).json({ success: false, error: 'Invalid deadline/end date format' });
+    }
+
+    // Ensure deadline is not in the past (date-only compare)
+    const today = startOfTodayUtcDateOnly();
+    if (end && end < today) {
+      return res.status(400).json({ success: false, error: 'Deadline cannot be in the past' });
+    }
+
+    // Ensure start <= end when both provided
+    if (start && end && start > end) {
+      return res.status(400).json({ success: false, error: 'Start date cannot be after deadline' });
+    }
+
+    // Ensure item exists
+    const [currentItems] = await pool.execute('SELECT * FROM items WHERE id = ?', [id]);
+    if (currentItems.length === 0) {
+      return res.status(404).json({ success: false, error: 'Item not found' });
+    }
+
+    const updateFields = [];
+    const updateValues = [];
+    if (start !== null) { updateFields.push('timeline_start = ?'); updateValues.push(start); }
+    if (end !== null) { updateFields.push('timeline_end = ?'); updateValues.push(end); }
+
+    updateValues.push(id);
+    await pool.execute(
+      `UPDATE items SET ${updateFields.join(', ')} WHERE id = ?`,
+      updateValues
+    );
+
+    await logActivity(id, req.user?.id || 1, 'timeline_updated', 'Timeline was updated');
+
+    const [updatedItems] = await pool.execute(
+      `SELECT i.*, 
+       GROUP_CONCAT(DISTINCT u.id) as assignee_ids, 
+       GROUP_CONCAT(DISTINCT u.name) as assignee_names 
+       FROM items i 
+       LEFT JOIN item_assignees ia ON i.id = ia.item_id 
+       LEFT JOIN users u ON ia.user_id = u.id 
+       WHERE i.id = ? 
+       GROUP BY i.id`,
+      [id]
+    );
+
+    const item = {
+      ...updatedItems[0],
+      assignee_ids: updatedItems[0].assignee_ids ? updatedItems[0].assignee_ids.split(',').map(Number) : [],
+      assignee_names: updatedItems[0].assignee_names ? updatedItems[0].assignee_names.split(',') : []
+    };
+
+    res.json({ success: true, data: item });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 // Delete item
 const deleteItem = async (req, res) => {
   try {
@@ -289,6 +402,7 @@ module.exports = {
   getItemById,
   createItem,
   updateItem,
+  updateItemTimeline,
   deleteItem
 };
 

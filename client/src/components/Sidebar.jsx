@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Search, Home, BarChart3, Calendar, Settings, Users } from 'lucide-react';
+import { X, ChevronDown, ChevronRight, Plus, Search, Home, BarChart3, Calendar, Settings, Users } from 'lucide-react';
 import { createBoard } from '../services/api';
 
-const Sidebar = ({ boards, currentBoard, onBoardChange, onBoardCreated }) => {
+const Sidebar = ({ boards, currentBoard, onBoardChange, onBoardCreated, onClose }) => {
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const close = () => {
+    if (onClose) onClose();
+  };
 
   const handleCreateBoard = async () => {
     const boardName = prompt('Enter board name:');
@@ -20,6 +23,7 @@ const Sidebar = ({ boards, currentBoard, onBoardChange, onBoardCreated }) => {
         // Switch to the new board
         if (response.data.data && onBoardChange) {
           onBoardChange({ id: response.data.data.id, name: response.data.data.name });
+          close();
         }
       }
     } catch (error) {
@@ -36,9 +40,9 @@ const Sidebar = ({ boards, currentBoard, onBoardChange, onBoardCreated }) => {
   ];
 
   return (
-    <div className="w-64 bg-white border-r border-gray-200 h-screen flex flex-col">
+    <div className="w-full md:w-64 bg-white border-r border-gray-200 h-full flex flex-col">
       {/* Logo */}
-      <div className="p-4 border-b border-gray-200">
+      <div className="p-4 border-b border-gray-200 relative">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
             <div className="w-2 h-2 rounded-full bg-red-500"></div>
@@ -48,6 +52,16 @@ const Sidebar = ({ boards, currentBoard, onBoardChange, onBoardCreated }) => {
           </div>
           <span className="font-bold text-xl">EmarsPro</span>
         </div>
+        {onClose && (
+          <button
+            type="button"
+            onClick={close}
+            className="md:hidden absolute top-3 right-3 p-2 hover:bg-gray-100 rounded-md"
+            aria-label="Close sidebar"
+          >
+            <X className="w-5 h-5 text-gray-700" />
+          </button>
+        )}
       </div>
 
       {/* Search */}
@@ -97,7 +111,10 @@ const Sidebar = ({ boards, currentBoard, onBoardChange, onBoardCreated }) => {
               {boards.map((board) => (
                 <button
                   key={board.id}
-                  onClick={() => onBoardChange(board)}
+                  onClick={() => {
+                    onBoardChange(board);
+                    close();
+                  }}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-gray-100 transition-colors ${
                     currentBoard?.id === board.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-700'
                   }`}

@@ -19,6 +19,7 @@
 .env.test.local
 .env.production.local
 .env.*.local
+
 # Note: .env is NOT ignored - it contains production API URL for Vercel
 
 # logs

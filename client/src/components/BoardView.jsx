@@ -1,11 +1,45 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useEffect, memo } from 'react';
 import { ChevronDown, ChevronRight, Plus, GripVertical, MoreHorizontal, Calendar as CalendarIcon, X } from 'lucide-react';
 import { statusOptions, priorityOptions } from '../utils/dataTransform';
 import { getUsers } from '../services/api';
-import { createItem, updateItem, createGroup, getBoardById, createSubItem, updateSubItem, deleteSubItem } from '../services/api';
+import { createItem, updateItem, updateItemTimeline as patchItemTimeline, createGroup, getBoardById, createSubItem, updateSubItem, deleteSubItem } from '../services/api';
 import { transformBoard, prepareItemForBackend, UI_STATUS_TO_BACKEND, UI_PRIORITY_TO_BACKEND } from '../utils/dataTransform';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Calendar } from './ui/calendar';
+import { toast } from '../hooks/use-toast';
+
+const ItemNameInput = memo(function ItemNameInput({ initialValue, onDebouncedCommit }) {
+  const [value, setValue] = useState(initialValue ?? '');
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    setValue(initialValue ?? '');
+  }, [initialValue]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const onChange = (next) => {
+    setValue(next);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      onDebouncedCommit(next);
+    }, 500);
+  };
+
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full bg-transparent text-sm text-gray-900 focus:outline-none"
+      aria-label="Item title"
+    />
+  );
+});
 
 const BoardView = ({ board, onUpdateBoard }) => {
   const [collapsedGroups, setCollapsedGroups] = useState({});
@@ -147,7 +181,7 @@ const BoardView = ({ board, onUpdateBoard }) => {
     setLoading(prev => ({ ...prev, [loadingKey]: true }));
     
     try {
-      await updateItem(itemId, { timeline_start: newDate });
+      await patchItemTimeline(itemId, { timeline_start: newDate });
       await refetchBoard();
     } catch (error) {
       console.error('Error updating item date:', error);
@@ -157,19 +191,24 @@ const BoardView = ({ board, onUpdateBoard }) => {
     }
   };
 
-  const updateItemTimeline = async (groupId, itemId, timelineStart, timelineEnd) => {
+  const updateItemTimelineRange = async (groupId, itemId, timelineStart, timelineEnd) => {
     const loadingKey = `timeline-${itemId}`;
     setLoading(prev => ({ ...prev, [loadingKey]: true }));
     
     try {
-      await updateItem(itemId, { 
-        timeline_start: timelineStart, 
-        timeline_end: timelineEnd 
+      await patchItemTimeline(itemId, {
+        timeline_start: timelineStart,
+        timeline_end: timelineEnd
       });
       await refetchBoard();
     } catch (error) {
       console.error('Error updating timeline:', error);
-      alert('Failed to update timeline');
+      const message = error?.response?.data?.error || 'Failed to update timeline';
+      toast({
+        title: 'Timeline update failed',
+        description: message,
+        variant: 'destructive'
+      });
     } finally {
       setLoading(prev => ({ ...prev, [loadingKey]: false }));
     }
@@ -273,43 +312,17 @@ const BoardView = ({ board, onUpdateBoard }) => {
     }
   };
 
-  // Local state for input values - updates instantly without blocking
-  const [itemInputValues, setItemInputValues] = useState({});
-  const [nameUpdateTimer, setNameUpdateTimer] = useState({});
-
-  // Initialize input values from board data
-  useEffect(() => {
-    const values = {};
-    board.groups.forEach(group => {
-      group.items.forEach(item => {
-        values[item.id] = item.name;
-      });
-    });
-    setItemInputValues(prev => ({ ...prev, ...values }));
-  }, [board.id, board.groups]); // Reset when board or groups change
-
-  const handleNameChange = (groupId, itemId, newName) => {
-    // Update local input state instantly - no delay
-    setItemInputValues(prev => ({ ...prev, [itemId]: newName }));
-    
-    // Clear existing timer
-    if (nameUpdateTimer[itemId]) {
-      clearTimeout(nameUpdateTimer[itemId]);
-    }
-    
-    // Debounce API call only - 500ms delay
-    const timer = setTimeout(() => {
-      updateItemName(groupId, itemId, newName);
-    }, 500);
-    
-    setNameUpdateTimer(prev => ({ ...prev, [itemId]: timer }));
-  };
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
 
   return (
-    <div className="flex-1 overflow-auto bg-gray-50">
-      <div className="min-w-max">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-50">
+      <div className="w-full lg:min-w-max">
         {/* Column Headers */}
-        <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="hidden lg:block bg-white border-b border-gray-200 sticky top-0 z-10">
           <div className="flex items-center">
             <div className="w-12 flex-shrink-0"></div>
             <div className="w-80 px-4 py-3 font-semibold text-sm text-gray-700 border-r border-gray-200">Item</div>
@@ -349,31 +362,31 @@ const BoardView = ({ board, onUpdateBoard }) => {
                   {group.items.map((item, idx) => (
                     <React.Fragment key={item.id}>
                     <div 
-                      className={`flex items-center border-b border-gray-200 hover:bg-blue-50 transition-colors group ${
+                      className={`group border-b border-gray-200 hover:bg-blue-50 transition-colors lg:flex lg:items-center grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2 p-3 lg:p-0 ${
                         idx === group.items.length - 1 ? '' : ''
                       }`}
                       onMouseEnter={() => setHoveredRow(item.id)}
                       onMouseLeave={() => setHoveredRow(null)}
                     >
                       {/* Drag Handle */}
-                      <div className="w-12 flex items-center justify-center">
+                      <div className="hidden lg:flex w-12 items-center justify-center">
                         <GripVertical className={`w-4 h-4 text-gray-400 ${
                           hoveredRow === item.id ? 'opacity-100' : 'opacity-0'
                         } transition-opacity`} />
                       </div>
 
                       {/* Item Name */}
-                      <div className="w-80 px-4 py-3 border-r border-gray-200">
-                        <input
-                          type="text"
-                          value={itemInputValues[item.id] !== undefined ? itemInputValues[item.id] : item.name}
-                          onChange={(e) => handleNameChange(group.id, item.id, e.target.value)}
-                          className="w-full bg-transparent text-sm text-gray-900 focus:outline-none"
+                      <div className="w-full sm:col-span-2 lg:w-80 lg:px-4 lg:py-3 lg:border-r border-gray-200">
+                        <div className="lg:hidden text-[11px] font-medium text-gray-500 mb-1">Item</div>
+                        <ItemNameInput
+                          initialValue={item.name}
+                          onDebouncedCommit={(next) => updateItemName(group.id, item.id, next)}
                         />
                       </div>
 
                       {/* Status */}
-                      <div className="w-40 px-4 py-3 border-r border-gray-200">
+                      <div className="w-full lg:w-40 lg:px-4 lg:py-3 lg:border-r border-gray-200">
+                        <div className="lg:hidden text-[11px] font-medium text-gray-500 mb-1">Status</div>
                         <Popover>
                           <PopoverTrigger asChild>
                             <button 
@@ -400,17 +413,18 @@ const BoardView = ({ board, onUpdateBoard }) => {
                       </div>
 
                       {/* Person */}
-                      <div className="w-40 px-4 py-3 border-r border-gray-200">
+                      <div className="w-full lg:w-40 lg:px-4 lg:py-3 lg:border-r border-gray-200">
+                        <div className="lg:hidden text-[11px] font-medium text-gray-500 mb-1">Person</div>
                         <Popover>
                           <PopoverTrigger asChild>
-                            <button className="flex items-center gap-2 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">
+                            <button className="w-full flex items-center gap-2 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">
                               <div 
                                 className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-medium"
                                 style={{ backgroundColor: item.person.color }}
                               >
                                 {item.person.avatar}
                               </div>
-                              <span className="text-sm text-gray-900">{item.person.name.split(' ')[0]}</span>
+                              <span className="text-sm text-gray-900 truncate">{item.person.name.split(' ')[0]}</span>
                             </button>
                           </PopoverTrigger>
                           <PopoverContent className="w-56 p-2">
@@ -438,10 +452,11 @@ const BoardView = ({ board, onUpdateBoard }) => {
                       </div>
 
                       {/* Date */}
-                      <div className="w-40 px-4 py-3 border-r border-gray-200">
+                      <div className="w-full lg:w-40 lg:px-4 lg:py-3 lg:border-r border-gray-200">
+                        <div className="lg:hidden text-[11px] font-medium text-gray-500 mb-1">Date</div>
                         <Popover>
                           <PopoverTrigger asChild>
-                            <button className="flex items-center gap-2 text-sm text-gray-900 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">
+                            <button className="w-full flex items-center gap-2 text-sm text-gray-900 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">
                               <CalendarIcon className="w-4 h-4 text-gray-500" />
                               {new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                             </button>
@@ -462,7 +477,8 @@ const BoardView = ({ board, onUpdateBoard }) => {
                       </div>
 
                       {/* Priority */}
-                      <div className="w-40 px-4 py-3 border-r border-gray-200">
+                      <div className="w-full lg:w-40 lg:px-4 lg:py-3 lg:border-r border-gray-200">
+                        <div className="lg:hidden text-[11px] font-medium text-gray-500 mb-1">Priority</div>
                         <Popover>
                           <PopoverTrigger asChild>
                             <button 
@@ -492,7 +508,8 @@ const BoardView = ({ board, onUpdateBoard }) => {
                       </div>
 
                       {/* Timeline */}
-                      <div className="w-60 px-4 py-3">
+                      <div className="w-full sm:col-span-2 lg:w-60 lg:px-4 lg:py-3">
+                        <div className="lg:hidden text-[11px] font-medium text-gray-500 mb-1">Timeline</div>
                         <Popover>
                           <PopoverTrigger asChild>
                             <button className="w-full flex items-center gap-2 text-xs text-gray-600 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">
@@ -519,7 +536,8 @@ const BoardView = ({ board, onUpdateBoard }) => {
                                   onSelect={(date) => {
                                     if (date) {
                                       const dateStr = date.toISOString().split('T')[0];
-                                      updateItemTimeline(group.id, item.id, dateStr, item.timeline.end);
+                                      const endStr = item.timeline.end && item.timeline.end < dateStr ? dateStr : item.timeline.end;
+                                      updateItemTimelineRange(group.id, item.id, dateStr, endStr);
                                     }
                                   }}
                                 />
@@ -529,10 +547,11 @@ const BoardView = ({ board, onUpdateBoard }) => {
                                 <Calendar
                                   mode="single"
                                   selected={new Date(item.timeline.end)}
+                                  disabled={{ before: today }}
                                   onSelect={(date) => {
                                     if (date) {
                                       const dateStr = date.toISOString().split('T')[0];
-                                      updateItemTimeline(group.id, item.id, item.timeline.start, dateStr);
+                                      updateItemTimelineRange(group.id, item.id, item.timeline.start, dateStr);
                                     }
                                   }}
                                 />
@@ -571,10 +590,11 @@ const BoardView = ({ board, onUpdateBoard }) => {
                             {item.sub_items.map((subItem) => (
                               <div
                                 key={subItem.id}
-                                className="flex items-center border border-gray-300 rounded bg-white hover:bg-blue-50 transition-colors text-xs"
+                                className="border border-gray-300 rounded bg-white hover:bg-blue-50 transition-colors text-xs lg:flex lg:items-center grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2 p-2"
                               >
                                 {/* Sub-item Title */}
-                                <div className="flex-1 px-2 py-1.5 border-r border-gray-300">
+                                <div className="w-full sm:col-span-2 lg:flex-1 lg:px-2 lg:py-1.5 lg:border-r border-gray-300">
+                                  <div className="lg:hidden text-[11px] font-medium text-gray-500 mb-1">Sub-item</div>
                                   <input
                                     type="text"
                                     value={editingSubItem?.id === subItem.id ? editingSubItem.title : subItem.title}
@@ -596,7 +616,8 @@ const BoardView = ({ board, onUpdateBoard }) => {
                                 </div>
 
                                 {/* Sub-item Status */}
-                                <div className="w-24 px-2 py-1.5 border-r border-gray-300">
+                                <div className="w-full lg:w-24 lg:px-2 lg:py-1.5 lg:border-r border-gray-300">
+                                  <div className="lg:hidden text-[11px] font-medium text-gray-500 mb-1">Status</div>
                                   <Popover>
                                     <PopoverTrigger asChild>
                                       <button 
@@ -622,7 +643,8 @@ const BoardView = ({ board, onUpdateBoard }) => {
                                 </div>
 
                                 {/* Sub-item Priority */}
-                                <div className="w-24 px-2 py-1.5 border-r border-gray-300">
+                                <div className="w-full lg:w-24 lg:px-2 lg:py-1.5 lg:border-r border-gray-300">
+                                  <div className="lg:hidden text-[11px] font-medium text-gray-500 mb-1">Priority</div>
                                   <Popover>
                                     <PopoverTrigger asChild>
                                       <button 
@@ -651,7 +673,8 @@ const BoardView = ({ board, onUpdateBoard }) => {
                                 </div>
 
                                 {/* Sub-item Timeline */}
-                                <div className="w-32 px-2 py-1.5 border-r border-gray-300 text-gray-600">
+                                <div className="w-full sm:col-span-2 lg:w-32 lg:px-2 lg:py-1.5 lg:border-r border-gray-300 text-gray-600">
+                                  <div className="lg:hidden text-[11px] font-medium text-gray-500 mb-1">Timeline</div>
                                   <Popover>
                                     <PopoverTrigger asChild>
                                       <button className="text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 px-2 py-0.5 rounded transition-colors w-full text-left">
@@ -704,7 +727,7 @@ const BoardView = ({ board, onUpdateBoard }) => {
                                 </div>
 
                                 {/* Delete Button */}
-                                <div className="px-2 py-1.5">
+                                <div className="flex justify-end px-2 py-1.5 sm:col-span-2 lg:col-auto">
                                   <button
                                     onClick={() => handleDeleteSubItem(subItem.id)}
                                     className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition-colors"

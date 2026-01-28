@@ -69,6 +69,8 @@ const ItemModal = ({ item, group, boardId, onSave, onClose }) => {
     });
   };
 
+  const todayStr = new Date().toISOString().split('T')[0];
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -102,7 +104,7 @@ const ItemModal = ({ item, group, boardId, onSave, onClose }) => {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Status
@@ -135,7 +137,7 @@ const ItemModal = ({ item, group, boardId, onSave, onClose }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Timeline Start
@@ -154,6 +156,7 @@ const ItemModal = ({ item, group, boardId, onSave, onClose }) => {
               </label>
               <input
                 type="date"
+                min={todayStr}
                 value={timelineEnd}
                 onChange={(e) => setTimelineEnd(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"

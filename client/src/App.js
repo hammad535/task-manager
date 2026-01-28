@@ -3,6 +3,7 @@ import './App.css';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import BoardView from './components/BoardView';
+import { Toaster } from './components/ui/toaster';
 import { getBoards, getBoardById } from './services/api';
 import { transformBoard } from './utils/dataTransform';
 
@@ -10,6 +11,7 @@ function App() {
   const [boards, setBoards] = useState([]);
   const [currentBoard, setCurrentBoard] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const fetchBoards = useCallback(async () => {
     try {
@@ -72,17 +74,42 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar 
-        boards={boards} 
-        currentBoard={currentBoard} 
-        onBoardChange={handleBoardChange}
-        onBoardCreated={handleBoardCreated}
-      />
-      <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex min-h-screen overflow-hidden">
+      <Toaster />
+
+      {/* Mobile sidebar (drawer) */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setSidebarOpen(false)}
+          />
+          <div className="absolute inset-y-0 left-0 w-80 max-w-[85vw]">
+            <Sidebar
+              boards={boards}
+              currentBoard={currentBoard}
+              onBoardChange={handleBoardChange}
+              onBoardCreated={handleBoardCreated}
+              onClose={() => setSidebarOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Desktop sidebar */}
+      <div className="hidden md:block h-screen">
+        <Sidebar 
+          boards={boards} 
+          currentBoard={currentBoard} 
+          onBoardChange={handleBoardChange}
+          onBoardCreated={handleBoardCreated}
+        />
+      </div>
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {currentBoard ? (
           <>
-            <Header currentBoard={currentBoard} />
+            <Header currentBoard={currentBoard} onOpenSidebar={() => setSidebarOpen(true)} />
             <BoardView 
               board={currentBoard} 
               onUpdateBoard={handleUpdateBoard}
