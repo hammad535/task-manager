@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getTeams, getItemById } from '../services/api';
+import { formatDateLocal, getTodayLocal } from '../utils/dateUtils';
 
 const ItemModal = ({ item, group, boardId, onSave, onClose }) => {
   const [title, setTitle] = useState(item?.title || '');
@@ -69,7 +70,7 @@ const ItemModal = ({ item, group, boardId, onSave, onClose }) => {
     });
   };
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayLocal();
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

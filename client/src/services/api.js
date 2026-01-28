@@ -70,8 +70,10 @@ export const getItemById = (id) => api.get(`/items/${id}`);
 export const createItem = (data) => api.post('/items', data);
 export const updateItem = (id, data) => api.put(`/items/${id}`, data);
 export const updateItemStatus = (id, status) => api.patch(`/items/${id}/status`, { status });
-// Timeline (supports {date, deadline} or {timeline_start, timeline_end})
+// Timeline (supports {date} or {timeline: {startDate, endDate}} or legacy {timeline_start, timeline_end})
 export const updateItemTimeline = (id, data) => api.patch(`/items/${id}/timeline`, data);
+// Date update (uses timeline endpoint with {date} format)
+export const updateItemDate = (id, date) => api.patch(`/items/${id}/date`, { date });
 export const deleteItem = (id) => api.delete(`/items/${id}`);
 
 // Sub-items

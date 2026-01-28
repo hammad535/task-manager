@@ -50,7 +50,7 @@ const Sidebar = ({ boards, currentBoard, onBoardChange, onBoardCreated, onClose 
             <div className="w-2 h-2 rounded-full bg-green-500"></div>
             <div className="w-2 h-2 rounded-full bg-blue-500"></div>
           </div>
-          <span className="font-bold text-xl">EmarsPro</span>
+          <span className="font-bold text-xl">emarspro</span>
         </div>
         {onClose && (
           <button

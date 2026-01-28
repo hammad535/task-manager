@@ -2,21 +2,36 @@ const pool = require('../config/database');
 const { logActivity } = require('../utils/activityLogger');
 const { sendStatusChangeEmail } = require('../config/email');
 
+/**
+ * Normalize date to YYYY-MM-DD format using local timezone (no UTC conversion)
+ * This prevents the "previous day" bug when selecting dates
+ */
 const normalizeDateOnly = (value) => {
   if (value === null || value === undefined || value === '') return null;
 
   // Accept already-normalized YYYY-MM-DD
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
 
+  // Parse date and format as local YYYY-MM-DD (no UTC conversion)
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return null;
 
-  return d.toISOString().split('T')[0];
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  
+  return `${year}-${month}-${day}`;
 };
 
+/**
+ * Get today's date as YYYY-MM-DD string in local timezone
+ */
 const startOfTodayUtcDateOnly = () => {
-  // Compare using date-only strings to avoid timezone edge cases
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 // Get all items (with optional filters)
@@ -295,39 +310,59 @@ const updateItem = async (req, res) => {
   }
 };
 
-// Patch item timeline (supports {date, deadline} or {timeline_start, timeline_end})
+// Patch item timeline (supports {date} or {timeline: {startDate, endDate}} or legacy {timeline_start, timeline_end})
 const updateItemTimeline = async (req, res) => {
   try {
     const { id } = req.params;
-    const { date, deadline, timeline_start, timeline_end } = req.body || {};
+    const { date, timeline, timeline_start, timeline_end } = req.body || {};
 
-    const start = normalizeDateOnly(timeline_start ?? date);
-    const end = normalizeDateOnly(timeline_end ?? deadline);
+    let start = null;
+    let end = null;
+
+    // Handle new API format: { timeline: { startDate, endDate } }
+    if (timeline && typeof timeline === 'object') {
+      start = normalizeDateOnly(timeline.startDate);
+      end = normalizeDateOnly(timeline.endDate);
+    }
+    // Handle single date: { date: "YYYY-MM-DD" }
+    else if (date) {
+      start = normalizeDateOnly(date);
+    }
+    // Handle legacy format: { timeline_start, timeline_end }
+    else {
+      start = normalizeDateOnly(timeline_start);
+      end = normalizeDateOnly(timeline_end);
+    }
 
     if (start === null && end === null) {
       return res.status(400).json({
         success: false,
-        error: 'Provide at least one of {date, deadline} or {timeline_start, timeline_end}'
+        error: 'Provide {date} or {timeline: {startDate, endDate}} or {timeline_start, timeline_end}'
       });
     }
 
     // Validate parsing (normalizeDateOnly returns null on invalid input)
-    if ((timeline_start ?? date) !== undefined && (timeline_start ?? date) !== null && start === null) {
+    if (timeline?.startDate !== undefined && timeline.startDate !== null && start === null) {
       return res.status(400).json({ success: false, error: 'Invalid start date format' });
     }
-    if ((timeline_end ?? deadline) !== undefined && (timeline_end ?? deadline) !== null && end === null) {
-      return res.status(400).json({ success: false, error: 'Invalid deadline/end date format' });
+    if (timeline?.endDate !== undefined && timeline.endDate !== null && end === null) {
+      return res.status(400).json({ success: false, error: 'Invalid end date format' });
+    }
+    if (date !== undefined && date !== null && start === null) {
+      return res.status(400).json({ success: false, error: 'Invalid date format' });
     }
 
-    // Ensure deadline is not in the past (date-only compare)
+    // Validate timeline rules
     const today = startOfTodayUtcDateOnly();
+    
+    // Ensure endDate >= today (deadline cannot be in the past)
     if (end && end < today) {
       return res.status(400).json({ success: false, error: 'Deadline cannot be in the past' });
     }
 
-    // Ensure start <= end when both provided
+    // Ensure startDate <= endDate when both provided
     if (start && end && start > end) {
-      return res.status(400).json({ success: false, error: 'Start date cannot be after deadline' });
+      return res.status(400).json({ success: false, error: 'Start date cannot be after end date' });
     }
 
     // Ensure item exists
@@ -341,11 +376,13 @@ const updateItemTimeline = async (req, res) => {
     if (start !== null) { updateFields.push('timeline_start = ?'); updateValues.push(start); }
     if (end !== null) { updateFields.push('timeline_end = ?'); updateValues.push(end); }
 
-    updateValues.push(id);
-    await pool.execute(
-      `UPDATE items SET ${updateFields.join(', ')} WHERE id = ?`,
-      updateValues
-    );
+    if (updateFields.length > 0) {
+      updateValues.push(id);
+      await pool.execute(
+        `UPDATE items SET ${updateFields.join(', ')} WHERE id = ?`,
+        updateValues
+      );
+    }
 
     await logActivity(id, req.user?.id || 1, 'timeline_updated', 'Timeline was updated');
 

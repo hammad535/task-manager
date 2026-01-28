@@ -15,6 +15,7 @@ router.post('/', createItem);
 router.put('/:id', updateItem);
 router.patch('/:id/status', updateItem); // Use same controller, status will be in body
 router.patch('/:id/timeline', updateItemTimeline);
+router.patch('/:id/date', updateItemTimeline); // Date updates also use timeline endpoint
 router.delete('/:id', deleteItem);
 
 module.exports = router;

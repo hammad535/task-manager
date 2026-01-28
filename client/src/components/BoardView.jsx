@@ -4,6 +4,7 @@ import { statusOptions, priorityOptions } from '../utils/dataTransform';
 import { getUsers } from '../services/api';
 import { createItem, updateItem, updateItemTimeline as patchItemTimeline, createGroup, getBoardById, createSubItem, updateSubItem, deleteSubItem } from '../services/api';
 import { transformBoard, prepareItemForBackend, UI_STATUS_TO_BACKEND, UI_PRIORITY_TO_BACKEND } from '../utils/dataTransform';
+import { formatDateLocal, parseDateLocal, formatDateDisplay, getTodayLocal } from '../utils/dateUtils';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Calendar } from './ui/calendar';
 import { toast } from '../hooks/use-toast';
@@ -181,11 +182,22 @@ const BoardView = ({ board, onUpdateBoard }) => {
     setLoading(prev => ({ ...prev, [loadingKey]: true }));
     
     try {
-      await patchItemTimeline(itemId, { timeline_start: newDate });
+      // Format date as local YYYY-MM-DD (no UTC conversion)
+      const dateStr = formatDateLocal(newDate);
+      if (!dateStr) {
+        throw new Error('Invalid date');
+      }
+      
+      await patchItemDate(itemId, dateStr);
       await refetchBoard();
     } catch (error) {
       console.error('Error updating item date:', error);
-      alert('Failed to update date');
+      const message = error?.response?.data?.error || 'Failed to update date';
+      toast({
+        title: 'Date update failed',
+        description: message,
+        variant: 'destructive'
+      });
     } finally {
       setLoading(prev => ({ ...prev, [loadingKey]: false }));
     }
@@ -216,15 +228,20 @@ const BoardView = ({ board, onUpdateBoard }) => {
 
   const addNewItem = async (groupId) => {
     try {
+      const todayStr = getTodayLocal();
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      const nextWeekStr = formatDateLocal(nextWeek);
+      
       const newItem = {
         name: 'New Item',
         status: statusOptions[0],
         person: teamMembers[0] || { name: 'Unassigned', avatar: 'UA', color: '#C4C4C4' },
-        date: new Date().toISOString().split('T')[0],
+        date: todayStr,
         priority: priorityOptions[2],
         timeline: {
-          start: new Date().toISOString().split('T')[0],
-          end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+          start: todayStr,
+          end: nextWeekStr || todayStr
         }
       };
       
@@ -313,9 +330,7 @@ const BoardView = ({ board, onUpdateBoard }) => {
   };
 
   const today = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
+    return parseDateLocal(getTodayLocal());
   }, []);
 
   return (
@@ -458,17 +473,17 @@ const BoardView = ({ board, onUpdateBoard }) => {
                           <PopoverTrigger asChild>
                             <button className="w-full flex items-center gap-2 text-sm text-gray-900 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">
                               <CalendarIcon className="w-4 h-4 text-gray-500" />
-                              {new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              {formatDateDisplay(item.date)}
                             </button>
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0">
                             <Calendar
                               mode="single"
-                              selected={new Date(item.date)}
+                              selected={parseDateLocal(item.date)}
+                              disabled={{ before: today }}
                               onSelect={(date) => {
                                 if (date) {
-                                  const dateStr = date.toISOString().split('T')[0];
-                                  updateItemDate(group.id, item.id, dateStr);
+                                  updateItemDate(group.id, item.id, date);
                                 }
                               }}
                             />
@@ -680,7 +695,7 @@ const BoardView = ({ board, onUpdateBoard }) => {
                                       <button className="text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 px-2 py-0.5 rounded transition-colors w-full text-left">
                                         {subItem.timeline.start && subItem.timeline.end ? (
                                           <>
-                                            {new Date(subItem.timeline.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(subItem.timeline.end).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                            {formatDateDisplay(subItem.timeline.start)} - {formatDateDisplay(subItem.timeline.end)}
                                           </>
                                         ) : (
                                           <span className="text-gray-400">No dates</span>
@@ -693,13 +708,17 @@ const BoardView = ({ board, onUpdateBoard }) => {
                                           <label className="text-sm font-medium text-gray-700 mb-2 block">Start Date</label>
                                           <Calendar
                                             mode="single"
-                                            selected={subItem.timeline.start ? new Date(subItem.timeline.start) : undefined}
+                                            selected={subItem.timeline.start ? parseDateLocal(subItem.timeline.start) : undefined}
+                                            disabled={{ before: today }}
                                             onSelect={(date) => {
                                               if (date) {
-                                                const dateStr = date.toISOString().split('T')[0];
+                                                const startStr = formatDateLocal(date);
+                                                const currentEnd = subItem.timeline.end;
+                                                // If new start date is after end date, adjust end date
+                                                const endStr = currentEnd && startStr > currentEnd ? startStr : (currentEnd || startStr);
                                                 handleUpdateSubItem(subItem.id, { 
-                                                  timeline_start: dateStr,
-                                                  timeline_end: subItem.timeline.end || dateStr
+                                                  timeline_start: startStr,
+                                                  timeline_end: endStr
                                                 });
                                               }
                                             }}
@@ -709,13 +728,17 @@ const BoardView = ({ board, onUpdateBoard }) => {
                                           <label className="text-sm font-medium text-gray-700 mb-2 block">End Date</label>
                                           <Calendar
                                             mode="single"
-                                            selected={subItem.timeline.end ? new Date(subItem.timeline.end) : undefined}
+                                            selected={subItem.timeline.end ? parseDateLocal(subItem.timeline.end) : undefined}
+                                            disabled={{ before: today }}
                                             onSelect={(date) => {
                                               if (date) {
-                                                const dateStr = date.toISOString().split('T')[0];
+                                                const endStr = formatDateLocal(date);
+                                                const currentStart = subItem.timeline.start;
+                                                // Ensure end date is not before start date
+                                                const startStr = currentStart && endStr < currentStart ? endStr : (currentStart || endStr);
                                                 handleUpdateSubItem(subItem.id, { 
-                                                  timeline_start: subItem.timeline.start || dateStr,
-                                                  timeline_end: dateStr
+                                                  timeline_start: startStr,
+                                                  timeline_end: endStr
                                                 });
                                               }
                                             }}
