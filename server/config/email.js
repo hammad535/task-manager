@@ -1,47 +1,57 @@
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 
-// Create transporter (configure with your email service)
+// Create transporter (Gmail SMTP)
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port: process.env.EMAIL_PORT || 587,
-  secure: false,
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false, // must be false for port 587 (STARTTLS)
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
   }
 });
 
-// Verify connection
-transporter.verify((error, success) => {
-  if (error) {
-    console.log('⚠️ Email service not configured:', error.message);
-  } else {
-    console.log('✅ Email service ready');
-  }
-});
-
-const sendStatusChangeEmail = async (toEmail, itemTitle, oldStatus, newStatus) => {
+const verifyEmailTransport = async () => {
   try {
+    await transporter.verify();
+    console.log('✅ Email transport verified (Gmail SMTP)');
+    return true;
+  } catch (error) {
+    console.error('❌ Email transport verification failed:', error?.message || error);
+    return false;
+  }
+};
+
+const sendStatusChangeEmail = async (toEmail, itemTitle, oldStatus, newStatus, assignedUserName) => {
+  try {
+    const fromEmail = process.env.EMAIL_USER;
+    const assignedUserLabel = assignedUserName || toEmail;
+
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: `"Task Manager" <${fromEmail}>`,
       to: toEmail,
       subject: `Task Status Updated: ${itemTitle}`,
       html: `
         <h2>Task Status Update</h2>
         <p><strong>Task:</strong> ${itemTitle}</p>
-        <p><strong>Status changed from:</strong> ${oldStatus}</p>
-        <p><strong>Status changed to:</strong> ${newStatus}</p>
+        <p><strong>Status:</strong> ${newStatus}</p>
+        <p><strong>Previous status:</strong> ${oldStatus}</p>
+        <p><strong>Assigned user:</strong> ${assignedUserLabel}</p>
         <p>Please check your task management dashboard for more details.</p>
       `
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ Status change email sent to ${toEmail}`);
+    try {
+      await transporter.sendMail(mailOptions);
+      console.log(`✅ Status change email sent to ${toEmail}`);
+    } catch (error) {
+      console.error('❌ Error sending status change email:', error?.message || error);
+    }
   } catch (error) {
-    console.error('❌ Error sending email:', error.message);
+    console.error('❌ Error building status change email:', error?.message || error);
   }
 };
 
-module.exports = { sendStatusChangeEmail };
+module.exports = { transporter, verifyEmailTransport, sendStatusChangeEmail };
 

@@ -269,7 +269,7 @@ const updateItem = async (req, res) => {
 
       // Send email notifications to assignees
       const [assignees] = await pool.execute(
-        'SELECT u.email FROM users u INNER JOIN item_assignees ia ON u.id = ia.user_id WHERE ia.item_id = ?',
+        'SELECT u.email, u.name FROM users u INNER JOIN item_assignees ia ON u.id = ia.user_id WHERE ia.item_id = ?',
         [id]
       );
 
@@ -278,7 +278,7 @@ const updateItem = async (req, res) => {
 
       for (const assignee of assignees) {
         if (assignee.email) {
-          await sendStatusChangeEmail(assignee.email, itemTitle, oldStatus, newStatus);
+          await sendStatusChangeEmail(assignee.email, itemTitle, oldStatus, newStatus, assignee.name);
         }
       }
     } else if (updateFields.length > 0) {

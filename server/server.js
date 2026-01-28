@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 require('./utils/recurringTasks'); // Initialize recurring tasks cron job
+const { verifyEmailTransport } = require('./config/email');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -85,6 +86,9 @@ const server = app.listen(PORT, () => {
   if (process.env.FRONTEND_URL) {
     console.log(`🔗 Frontend URL: ${process.env.FRONTEND_URL}`);
   }
+
+  // Verify email transport on startup
+  verifyEmailTransport();
 });
 
 // Graceful shutdown
